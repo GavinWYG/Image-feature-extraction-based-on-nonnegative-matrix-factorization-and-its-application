@@ -1,0 +1,57 @@
+%未归一化时对各投影值的统计分析
+%此程序采用高斯分布的方法分析特征值，验证猜想，训练库为全部图像,未归一化
+clear,clc;
+%输入参数值
+r=144;     %特征数
+m=165;    %照片总数
+top=0;   %图表上限
+bot=-600;  %图表下限
+%读取165图片
+load Yale_64x64;
+I=zeros(64,64,m);
+for b=1:m
+    va=fea(b,:);
+    va=reshape(va,64,64);
+    I(:,:,b)=va;
+end
+%制造原始矩阵V
+V=zeros(4096,m);
+for b=1:m
+    i1=I(:,:,b);
+    i1=i1(:);
+    V(:,b)=i1;
+end
+%进行NMF分解，把V分解为W和H
+[W,H]=NMF(V,r);
+%求均值矩阵mu方差矩阵sigma，以此代入高斯分布公式
+mean0=zeros(r,15);
+var0=zeros(r,15);
+sigma=zeros(r,r,15);
+for b=1:15
+    mv1=H(:,(b-1)*11+1:b*11);
+    mv1=mv1';
+    mean0(:,b)=(mean(mv1))';
+    var0(:,b)=(var(mv1))';
+end
+mu=mean0;
+for b=1:15
+    sigma(:,:,b)=diag(var0(:,b));
+end
+RE=zeros(15,m);
+all=1:15;
+for d=1:15
+    Re=zeros(1,m);
+    for b=1:m
+            Re(1,b)=log(mvnpdf(H(:,b),mu(:,d),sigma(:,:,d)));  %核心，计算相关性
+    end
+    RE(d,:)=Re;
+    %显示并对比与各图的相关度
+    d1=all(d);
+    x=1:m;
+    subplot(2,8,d);
+    plot(x,Re,'kx');
+    axis([0,166,bot,top]);
+    grid on
+    set(gca,'xtick',1:11:165,'xticklabel',[]);
+    title(['',int2str(d1),'号']);
+end
