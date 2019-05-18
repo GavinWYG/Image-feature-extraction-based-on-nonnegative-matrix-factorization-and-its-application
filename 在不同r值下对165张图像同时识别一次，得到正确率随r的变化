@@ -1,0 +1,249 @@
+在不同r值下对165张图像同时识别一次，得到正确率随r的变化
+%此程序采用高斯分布的方法分析特征值，并尝试用伪逆矩阵分离训练过程与识别过程,消除RE1右侧空余零,灵活控制每个人剔除的照片
+%对原始数据库进行均值归一化，显示归一化,判断采用阈值和排名双标准,自动将输入照片从训练库分离（多张）
+%批量识别全部的照片，并判断其正确与否
+%探索效果最好的r值
+clear,clc;
+tic
+%输入参数值
+% r=64;    %特征数
+R=165;    %最大特征数
+m=165;    %照片总数
+dele=[];  %剔除的成员序号（可以是多个人，也可以没有）,不超过14人
+% inp=160;   %识别的照片序号（应是原始数据库外的，即每人后几张照片和外来成员的所有照片）,此处根据序号自动从训练库筛除
+thr2=300;  %相差阈值,一般情况下，r越大，阈值就越大
+corr=0;    %阈值补偿系数(2)
+topN=0;   %补偿名次(30)
+
+
+%此应用先用部分(如14*10张）图组成原始数据库，再以此识别剩下的照片
+%读取165图片
+load Yale_64x64;
+I0=zeros(64,64,m);
+for b=1:m
+    va=fea(b,:);
+    va=reshape(va,64,64);
+    I0(:,:,b)=va;  %I0中包含全部信息，未抽取,为原始数据库
+end
+
+%基本数据处理
+denum=size(dele);%denum为被剔除人的个数
+denum=denum(2);
+reco=10;
+mod_list0=[1:10 0];
+mod_list=mod_list0(11);
+
+%初始化矩阵1
+cond=zeros(15-denum,15,11);
+cond2=zeros(15-denum,15,11); %
+resu=zeros(15,11);    %识别结果
+% jud=zeros(15,11);    %判断结果是否正确，正确为1
+gra=zeros(15,11);    %识别确定度
+Acc=zeros(R,1);
+
+%生成标准答案
+sta0=(1:15)';
+sta=zeros(15,11);
+for b=1:11
+sta(:,b)=sta0;
+end
+
+if denum~=0
+    for b=1:denum
+        row0=dele(1,b);
+        sta(row0,:)=0;
+    end
+end
+
+for r=1:R      %每个特征数求一个
+    
+for f=1:11       %165幅图按列分一大组，每列统一求伪逆
+    I=I0;    %每次回归I值
+    
+	%由于每个人剔除照片为任选，故对I进行重新排序（一列图移到右面）
+	tail=zeros(64,64);
+	for b=1:15
+		Ipart=I(:,:,(b-1)*11+1:b*11);
+        tail=Ipart(:,:,f);
+        Ipart(:,:,f)=zeros(64,64);
+		c0=0;
+		for c=1:11
+			c1=c-c0;
+			if Ipart(:,:,c1)==zeros(64,64)
+				Ipart(:,:,c1)=[];
+				c0=c0+1;
+			end
+		end
+		Ipart=cat(3,Ipart,tail);
+		I(:,:,(b-1)*11+1:b*11)=Ipart;
+	end
+
+	%制造原始矩阵V，此时V中包含原始库的数据，以及将要识别的数据  （去掉右面那一列图）
+	%构造原数据库,要去掉每个人的后几张，以及被剔除的人
+	V0=zeros(4096,10*(15-denum));
+	b0=0;
+	for b=1:m      %m-11*denum
+		b2=mod(b,11);
+		if b2~=0
+			b3=(b-b2)/11;
+		else
+			b3=(b-b2)/11-1;
+		end
+		bjus0=ismember(b2,mod_list);
+		bjus=~bjus0;
+		b10=ismember(b3+1,dele);
+		b1=~b10;
+		if b1
+			b4=b3-ceil(b0/11);
+			if bjus
+				i1=I(:,:,b);
+				i1=i1(:);
+				if b2~=0
+					V0(:,b4*10+b2)=i1;
+				else
+					V0(:,b4*10+11)=i1;
+				end
+			end
+		else
+			b0=b0+1;
+		end
+	end
+  
+	%进行NMF分解，把V分解为W和H
+	[W,H0]=NMF(V0,r);
+	Wop=pinv(W);
+
+    %加入新识别图
+    ia=zeros(64,64,15);  
+    for g=1:15
+        inp=(g-1)*11+f;
+        ia(:,:,g)=I(:,:,inp);
+    end
+    Vplus=reshape(ia,4096,15);
+
+	%修改后伪逆公式
+	V=[V0 Vplus];
+	H1=Wop*V;
+	Vcol=size(H1);
+	Vcol=Vcol(2)-14;    %此处的Vcol意义与之前相同，为已知库照片数+1
+
+	%求H1中每个人reco张照片的特征平均值，以及方差，方便下一步识别
+	%求均值矩阵mu方差矩阵sigma，以此代入高斯分布公式
+	mean0=zeros(r,15-denum);
+	var0=zeros(r,15-denum);
+	sigma=zeros(r,r,15-denum);
+
+	for b=1:15-denum
+		mv1=H1(:,(b-1)*reco+1:b*reco);    %1仔细考虑是H1还是H0,  2重点关注求mean0值的时候是否正确变动
+		mv1=mv1';  
+		mean0(:,b)=(mean(mv1))';
+		var0(:,b)=(var(mv1))';
+	end
+	mu=mean0;
+	for b=1:15-denum
+		sigma(:,:,b)=diag(var0(:,b));
+	end
+
+	%初始化矩阵2
+	Re_min=zeros(15-denum,1);
+	Re_max=zeros(15-denum,1);
+	ReX=zeros(15-denum,15);    %每一列表示一张照片与每个人的库作比较，共15-denum列，表示这些照片作比较
+	RE=zeros(15-denum,10);
+	RE1=zeros(15-denum,Vcol-1);
+	Re_fix=zeros(15-denum,1); %
+
+	%数值变化，弥补剔除的人
+	all=1:15;
+	for b=1:denum
+		all(all==dele(b))=[];
+	end
+
+	%求相关性，并显示每个人的识别状况
+	for d=1:15-denum
+		Re=zeros(1,reco);
+		Re1=zeros(1,Vcol-1);
+		for b=1:reco       %一个人数据均值与他所有照片比较
+			Re(1,b)=log(mvnpdf(H1(:,b+(d-1)*reco),mu(:,d),sigma(:,:,d)));  %改成H0（H1）会如何
+        
+		end
+    
+		for b=1:Vcol-1     %一个人数据均值与库中所有照片作比较
+			Re1(1,b)=log(mvnpdf(H1(:,b),mu(:,d),sigma(:,:,d)));    %改成H0（H1）会如何
+		end
+		Re_min(d)=min(Re);
+		Re1a=Re1(1:Vcol-1);
+		Re1a((d-1)*reco+1:d*reco)=[];  %Re1a用来寻找Re1中除自己照片外最大的值
+		Re_max(d)=max(Re1a);
+		RE(d,:)=Re;
+		RE1(d,:)=Re1;
+    
+		for g=1:15    %新照片与其中一个人数据均值作比较
+		
+			ReX(d,g)=log(mvnpdf(H1(:,Vcol-1+g),mu(:,d),sigma(:,:,d))); 
+			cond2(d,g,f)=ReX(d,g)-Re_min(d);
+			Re_Sort=sort(Re1);
+			Re_fix(d)=mean(Re(1:reco))-mean(Re_Sort(Vcol-reco-5:Vcol-reco-1));
+
+			%显示每个ReX在Re1中的排名
+			for b=1:Vcol-1
+				if ReX(d,g)<Re1(b)
+					cond(d,g,f)=cond(d,g,f)+1;
+				end
+			end
+        
+			%将Re1和ReX归一化
+			dif1=0-max(RE1(d,:));
+			RE1(d,:)=RE1(d,:)+dif1;
+			ReX(d,g)=ReX(d,g)+dif1;
+		end
+	end
+
+	%判法，相差阈值
+	for g=1:15
+		for d=1:15-denum
+			if cond(d,g,f)<topN
+				cond2(d,g,f)=cond2(d,g,f)+(20+Re_fix(d))*corr*(topN-cond(d,g,f))/100;
+			end
+		end
+	end
+
+	condm2=max(cond2(:,:,f));
+	% condm2=condm2(:,:,1);   %这时condm是一个1*15的行向量
+	g1=0;
+	for g=1:15
+		g0=ismember(g,dele);
+		if g0
+			g1=g1+1;
+		end
+
+		if condm2(1,g)<(-thr2)
+			resu(g,f)=0;
+		else
+			resu(g,f)=find(cond2(:,g,f)==condm2(1,g))+g1;
+		end
+
+		cond20=cond2(:,g,f);
+		g0=ismember(g,dele);
+		if g0
+			gra(g,f)=0;
+		else
+			cond20(g-g1,:)=[];
+			con_sort0=sort(cond20);
+			gra(g-g1,f)=cond2(g-g1,g,f)-con_sort0(14-denum); %用正确照片的cond值减去除掉正确照片最大的值，正值则判断正确
+		end
+
+	end     %结束g
+end    %结束f
+
+jud=(resu==sta);
+Acc(r,1)=sum(sum(jud));
+fprintf('第 %d次，共%d次\n',r,R);
+toc
+end    %结束r
+
+ratio=Acc/165;
+plot(ratio);
+title('正确率随r变化');
+axis([1,165,0,1])
+
+toc
