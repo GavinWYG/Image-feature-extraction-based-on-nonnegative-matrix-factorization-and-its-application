@@ -1,0 +1,37 @@
+%各特征图像的规则显示
+clear,clc;
+r=144;  %输入r值
+m=165;  %输入图像数
+load Yale_64x64;
+I=zeros(64,64,m);
+for b=1:m
+    va=fea(b,:);
+    va=reshape(va,64,64);
+    I(:,:,b)=va;
+end
+%制造原始矩阵V
+V=zeros(4096,m);
+for b=1:m
+    i1=I(:,:,b);
+    i1=i1(:);
+    V(:,b)=i1;
+end
+%进行NMF分解，把V分解为W和H
+[W,H]=NMF(V,r);
+%拆分W矩阵，并还原为r幅特征图像，包括拆分成条，重排形状
+w=zeros(64,64,r);
+for b=1:r
+    w0=W(:,b);
+    wa=reshape(w0,64,64);
+    w(:,:,b)=wa;
+end
+for b=1:144
+    b1=mod(b,12);
+    if b1==0
+        b1=12;
+    end
+    b2=(b-b1)/12;
+    positionVector1 = [0.05+(b1-1)*0.07,0.9-b2*0.07, 0.07, 0.07];
+    subplot('Position',positionVector1);
+    imshow(w(:,:,b),[]);
+end
