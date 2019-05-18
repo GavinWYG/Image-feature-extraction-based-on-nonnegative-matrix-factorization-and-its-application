@@ -1,0 +1,198 @@
+%对内部或者外来人员进行识别（注意，识别内部成员时dele的值为空白，若剔除X号成员则dele的值为X）：
+%此程序运行时训练过程与识别过程未分离
+clear,clc;
+%输入参数值
+r=144;    %特征数
+m=165;    %照片总数
+top=20;    %图表上限
+bot=-600; %图表下限
+dele=[];  %剔除的成员序号（可以是多个人，也可以没有）
+inp=1;   %识别的照片序号（应是原始数据库外的，即每人后几张照片和外来成员的所有照片）,此处根据序号自动从训练库筛除
+thr2=30;  %相差阈值,一般情况下，r越大，阈值就越大
+corr=0;    %阈值补偿系数(8)
+topN=30;   %补偿名次(25)
+tic
+%读取165图片
+load Yale_64x64;
+I=zeros(64,64,m);
+for b=1:m
+    va=fea(b,:);
+    va=reshape(va,64,64);
+    I(:,:,b)=va;  %I中包含全部信息，未抽取
+end
+%均值归一化
+for b=1:m
+    meanValue=mean(mean(I(:,:,b)));
+    I(:,:,b)=I(:,:,b)-meanValue+128;
+end
+%基本数据处理
+del=mod(inp,11);
+if del==0
+    del=11;
+end
+denum=size(dele);%denum为被剔除人的个数
+denum=denum(2);
+reco=size(del);
+reco=reco(2);
+reco=11-reco;
+if reco==11
+    mod_list=12;
+else
+    mod_list0=[1:10 0];
+    mod_list=mod_list0(reco+1:11);
+end
+%由于每个人剔除照片为任选，故对I进行排序
+tail=zeros(64,64,11-reco);
+for b=1:15
+    Ipart=I(:,:,(b-1)*11+1:b*11);
+    for c=1:11-reco
+        tail(:,:,c)=Ipart(:,:,del(c));
+        Ipart(:,:,del(c))=zeros(64,64);
+    end
+    c0=0;
+    for c=1:11
+        c1=c-c0;
+        if Ipart(:,:,c1)==zeros(64,64)
+            Ipart(:,:,c1)=[];
+            c0=c0+1;
+        end
+    end
+    Ipart=cat(3,Ipart,tail);
+    I(:,:,(b-1)*11+1:b*11)=Ipart;
+end
+%制造原始矩阵V，此时V中包含原始库的数据，以及将要识别的数据
+%构造原数据库,要去掉每个人的后几张，以及被剔除的人
+V0=zeros(4096,reco*(15-denum));
+b0=0;
+for b=1:m
+    b2=mod(b,11);
+    if b2~=0
+        b3=(b-b2)/11;
+    else
+        b3=(b-b2)/11-1;
+    end
+    bjus0=ismember(b2,mod_list);
+    bjus=~bjus0;
+    b10=ismember(b3+1,dele);
+    b1=~b10;
+    if b1
+        b4=b3-ceil(b0/11);
+        if bjus
+            i1=I(:,:,b);
+            i1=i1(:);
+            if b2~=0
+                V0(:,b4*reco+b2)=i1;
+            else
+                V0(:,b4*reco+11)=i1;
+            end
+        end
+    else
+        b0=b0+1;
+    end
+end
+%加入新识别图
+i1=I(:,:,inp);
+Vplus=i1(:);
+V=[V0 Vplus];
+Vcol=size(V);
+Vcol=Vcol(2);
+%进行NMF分解，把V分解为W和H
+[W,H1]=NMF(V,r);
+%求均值矩阵mu方差矩阵sigma，以此代入高斯分布公式
+mean0=zeros(r,15-denum);
+var0=zeros(r,15-denum);
+sigma=zeros(r,r,15-denum);
+for b=1:15-denum
+    mv1=H1(:,(b-1)*reco+1:b*reco);
+    mv1=mv1';
+    mean0(:,b)=(mean(mv1))';
+    var0(:,b)=(var(mv1))';
+end
+mu=mean0;
+for b=1:15-denum
+    sigma(:,:,b)=diag(var0(:,b));
+end
+%初始化矩阵
+Re_min=zeros(15-denum,1);
+Re_max=zeros(15-denum,1);
+ReX=zeros(15-denum,1);
+RE=zeros(15-denum,reco);
+RE1=zeros(15-denum,Vcol-1);
+Rtrue=zeros(1,15-denum);
+Rrate=zeros(1,15-denum);
+cond2=zeros(15-denum,2);
+Re_fix=zeros(15-denum,1);
+%数值变化，弥补剔除的人
+all=1:15;
+for b=1:denum
+    all(all==dele(b))=[];
+end
+%求相关性，并显示每个人的识别状况
+for d=1:15-denum
+    Re=zeros(1,reco);
+    Re1=zeros(1,Vcol-1);
+    for b=1:reco       %一个人数据均值与他所有照片比较
+        Re(1,b)=log(mvnpdf(H1(:,b+(d-1)*reco),mu(:,d),sigma(:,:,d)));
+    end
+    for b=1:Vcol-1     %一个人数据均值与库中所有照片作比较
+        Re1(1,b)=log(mvnpdf(H1(:,b),mu(:,d),sigma(:,:,d)));
+    end
+    Re_min(d)=min(Re);
+    Re1a=Re1(1:Vcol-1);
+    Re1a((d-1)*reco+1:d*reco)=[];  %Re1a用来寻找Re1中除自己照片外最大的值
+    Re_max(d)=max(Re1a);
+    RE(d,:)=Re;
+    RE1(d,:)=Re1;
+    %新照片与其中一个人数据均值作比较
+    ReX(d)=log(mvnpdf(H1(:,Vcol),mu(:,d),sigma(:,:,d)));
+    cond2(d,1)=ReX(d)-Re_min(d);         %(11)式中C值的定义
+    Re_Sort=sort(Re1);
+    Re_fix(d)=mean(Re(1:reco))-mean(Re_Sort(Vcol-reco-5:Vcol-reco-1));
+    %显示每个ReX在Re1中的排名
+    for b=1:Vcol-1
+        if ReX(d)<Re1(b)
+            cond2(d,2)=cond2(d,2)+1;
+        end
+    end
+
+    %将Re1和ReX归一化
+    dif1=0-max(RE1(d,:));
+    RE1(d,:)=RE1(d,:)+dif1;
+    ReX(d)=ReX(d)+dif1;
+
+    %显示并对比与各图的相关度
+    d1=all(d);
+    x=1:Vcol-1;
+    xReX=ReX(d).*ones(Vcol-1);
+    subplot(2,8,d);
+    plot(x,RE1(d,:),'kx');
+    hold on
+    plot(x,xReX,'r');
+    axis([0,Vcol,bot,top]);
+    grid on
+    set(gca,'xtick',1:reco:Vcol,'xticklabel',[]);
+    title(['',int2str(d1),'号']);
+end
+%判法，相差阈值
+for d=1:15-denum
+    if cond2(d,2)<topN
+        cond2(d,1)=cond2(d,1)+(20+Re_fix(d))*corr*(topN-cond2(d,2))/100;
+    end
+end
+condm2=max(cond2);
+condm2=condm2(1);
+if condm2<(-thr2)
+    answer0=0;
+else
+    answer0=find(cond2(:,1)==condm2);
+end
+%方便查阅在数据右侧加人的序号
+cond2=[cond2 all'];
+%输出结果
+if answer0==0
+    fprintf('请重新拍照\n');
+else
+    answer=all(answer0);
+    fprintf('欢迎你 %d号\n',answer);
+end
+toc
