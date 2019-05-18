@@ -1,0 +1,31 @@
+%原始图像的规则显示：
+clear,clc;
+tic
+m=165;   %照片总数
+reco=11;
+dele=[];
+inp=21;
+Vcol=166;
+load Yale_64x64;
+I=zeros(64,64,m);
+V0=zeros(4096,m);
+for b=1:m
+    va=fea(b,:);
+    va=reshape(va,64,64);
+    I(:,:,b)=va;  %I中包含全部信息，未抽取
+    V0(:,b)=va(:);
+end
+V1=zeros(64,64,Vcol);
+for b=1:Vcol-1
+    V1(:,:,b)=reshape(V0(:,b),64,64);
+end
+for b=1:Vcol-1
+    b1=mod(b,reco);
+    if b1==0
+        b1=reco;
+    end
+    b2=(b-b1)/reco;
+    positionVector1 = [0.1+(b1-1)*0.06,0.9-b2*0.06, 0.06, 0.06];
+    subplot('Position',positionVector1);
+    imshow(V1(:,:,b),[]);
+end
