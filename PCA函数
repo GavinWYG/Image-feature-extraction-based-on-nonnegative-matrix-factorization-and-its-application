@@ -1,5 +1,5 @@
 %PCA函数
-function [V,pcaA] = PCA(A,k)   %此处各个变量的尺寸与NMF一致
+function A_rec = PCA(A,k)   %此处各个变量的尺寸与NMF一致
 %A为样本矩阵，每行为一个样本
 %k表示要降低的维数
 A=A';  %修正
@@ -12,19 +12,21 @@ Z = (A-repmat(meanVec, r, 1));
 covMatT = Z * Z';
 %计算covMatT的前k个样本特征值和特征向量
 [V,~] = eigs(covMatT, k);
-%得到协方差矩阵（covMatT）'的样本特征向量
-V = Z' * V;
-%样本特征向量归一化为单位样本特征向量
-for i = 1:k
-    V(:,i) = V(:,i) / norm(V(:,i));
-end
-%线性变换（投影）降维至k维
+% %得到协方差矩阵（covMatT）'的样本特征向量
+% V = Z' * V;
+% %样本特征向量归一化为单位样本特征向量
+% for i = 1:k
+%     V(:,i) = V(:,i) / norm(V(:,i));
+% end
 
-pcaA = Z * V;
-pcaA=pcaA';     %修正
+% %线性变换（投影）降维至k维
+% pcaA = V*V'*Z;
+% 
+% pcaA = Z * V;
+A_rec = repmat(meanVec, r, 1)+V*V'*Z;
+A_rec = A_rec.';     %修正
 %pcaA表示降维后的k维样本特征向量组成的矩阵，每行一个样本
 %列数k为降维后的样本特征维数
 %V表示主成分向量
-
 %保存变换矩阵V和变换原点meanVec
 end
