@@ -1,11 +1,11 @@
 %验证不同r下，PCA和NMF的压缩能力
-clear,clc;
+clear,clc; close all;
 tic
 %输入R值
 R=165;
 m=165;
 %读取165图片
-load Yale_64x64;
+load('Yale_64x64');
 I=zeros(64,64,m);
 for b=1:m
     va=fea(b,:);
@@ -20,44 +20,51 @@ for b=1:m
     i1=i1(:);
     V(:,b)=i1;
 end
-
+% disp_fig(V',11);
 FP=zeros(R,1);
 FN=zeros(R,1);
 x=1:1:R;
 for r=1:R
-
-%进行NMF分解，把V分解为W和H
-[W1,H1]=PCA(V,r);
-[W2,H2]=NMF(V,r);
-
-%重组V矩阵
-Va=W1*H1;
-Vb=W2*H2;
-%将重组矩阵还原为图像
-ia=zeros(64,64,m);
-for b=1:m
-    Va0=Va(:,b);
-    Va1=reshape(Va0,64,64);
-    ia(:,:,b)=Va1;
+    %进行NMF分解，把V分解为W和H
+    Va=PCA_wyg(V,r);
+    [W2,H2]=NMF(V,r);
+    
+    %重组V矩阵
+%     Va=W1*H1;
+    Vb=W2*H2;
+    %将重组矩阵还原为图像
+    ia=zeros(64,64,m);
+    for b=1:m
+        Va0=Va(:,b);
+        Va1=reshape(Va0,64,64);
+        ia(:,:,b)=Va1;
+    end
+    
+    ib=zeros(64,64,m);
+    for b=1:m
+        Vb0=Vb(:,b);
+        Vb1=reshape(Va0,64,64);
+        ib(:,:,b)=Vb1;
+    end
+    
+    FP(r,1)=norm(V-Va,'fro');
+    FN(r,1)=norm(V-Vb,'fro');
+    
+    fprintf('第 %d次，共%d次\n',r,R);
+    toc
 end
-
-ib=zeros(64,64,m);
-for b=1:m
-    Vb0=Vb(:,b);
-    Vb1=reshape(Va0,64,64);
-    ib(:,:,b)=Vb1;
-end
-
-FP(r,1)=norm(V-Va,'fro');
-FN(r,1)=norm(V-Vb,'fro');
-
-fprintf('第 %d次，共%d次\n',r,R);
-toc
-end
-
+% disp_fig(Vb',11);
+% disp_fig(Va',11);
+FP = FP/norm(V,'fro');
+FN = FN/norm(V,'fro');
+figure, 
 plot(x,FP,'k');
 hold on
 plot(x,FN,'r');
-axis([1,165,10000,100000]);
+legend('PCA','NMF');
+legend('boxoff');
+axis([1,165,0,0.4]);
+xlabel('特征个数');
+ylabel('总误差');
 
 toc
